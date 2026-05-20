@@ -34,3 +34,5 @@ jobs:
       with:
         commit_message: "Updated news.csv with latest daily scrape"
         file_pattern: news.csv
+        # ⬇️ ADD THIS LINE BELOW TO AUTOMATICALLY RESOLVE CONFLICTS ⬇️
+        pull: '--rebase'
