@@ -1,0 +1,40 @@
+name: Daily HKUST Scraper
+
+on:
+  schedule:
+    # Runs everyday at 00:00 UTC (8:00 AM Hong Kong Time)
+    - cron: '0 0 * * *'
+  workflow_dispatch: # Allows manual trigger click button
+
+jobs:
+  run-scraper:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # Grants runner permission to overwrite and save changes
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
+      PYTHONUNBUFFERED: '1' # Guarantees live terminal print statements
+      
+    steps:
+    - name: Checkout Repo Code
+      uses: actions/checkout@v4
+
+    - name: Set up Python Engine
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.10'
+
+    - name: Install Libraries
+      run: pip install requests beautifulsoup4
+
+    - name: Execute Scraper Task
+      run: python scraper.py
+
+    # The ultimate fix: Configures git and force-pushes updates instantly
+    - name: Failproof Force Commit to Repository
+      run: |
+        git config --global user.name "github-actions[bot]"
+        git config --global user.email "github-actions[bot]@users.noreply.github.com"
+        git add news.csv
+        git commit -m "Automated update: Added latest news entries" || echo "No new news found to commit today."
+        git push origin main --force
