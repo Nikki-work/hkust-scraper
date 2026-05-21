@@ -16,101 +16,106 @@ def fetch_html(url):
         print(f"❌ Failed to reach {url}: {e}")
         return None
 
-def scrape_huma(content_type):
-    # content_type will be either 'news' or 'events'
-    url = f"https://huma.hkust.edu.hk/{content_type}"
-    print(f"Scraping HUMA {content_type.upper()}...")
-    html = fetch_html(url)
+def clean_text(text):
+    """Removes messy whitespace, tabs, and line breaks completely."""
+    if not text:
+        return ""
+    return " ".join(text.strip().split())
+
+def is_useless(headline):
+    """Filters out interface buttons, structural navigation artifacts, and tiny fragments."""
+    lower_h = headline.lower()
+    banned_phrases = [
+        "read more", "view all", "more events", "load more", "all news", 
+        "quick links", "search", "menu", "sitemap", "contact us", "home",
+        "humanities", "division of humanities"
+    ]
+    if len(headline) < 12: # True academic headlines are never this short
+        return True
+    return any(phrase in lower_h for phrase in banned_phrases)
+
+def scrape_huma_homepage():
+    print("Scraping HUMA Front Page Panels...")
+    html = fetch_html("https://huma.hkust.edu.hk/")
     if not html: return []
     
     soup = BeautifulSoup(html, "html.parser")
     data = []
     
-    # Target elements inside list structures
-    items = soup.find_all("li") or soup.find_all("div", class_=lambda x: x and 'item' in x.lower())
+    # Target frontend grid layout panels used on the HUMA home landing container
+    blocks = soup.find_all(["div", "article"], class_=lambda x: x and any(k in x.lower() for k in ['news', 'event', 'views-row', 'post']))
     
-    for item in items:
-        headline_elem = item.find(["a", "h2", "h3", "h4"])
-        date_elem = item.find(["span", "div", "time", "p"], class_=lambda x: x and 'date' in x.lower())
+    for block in blocks:
+        headline_elem = block.find(["a", "h2", "h3", "h4"])
+        date_elem = block.find(["span", "div", "time", "p"], class_=lambda x: x and 'date' in x.lower())
         
         if headline_elem:
-            headline = headline_elem.text.strip()
-            # Clean out excessive spacing that tricks the duplicate checker
-            headline = " ".join(headline.split())
-            
-            # Skip short links or navigation structural items
-            if len(headline) < 10 or "load more" in headline.lower():
+            headline = clean_text(headline_elem.text)
+            if is_useless(headline):
                 continue
                 
-            date = date_elem.text.strip() if date_elem else "See Link/No Date"
-            date = " ".join(date.split())
+            date = clean_text(date_elem.text) if date_elem else "Featured on HUMA Home"
             
             data.append({
-                "Source": f"HUMA ({content_type.capitalize()})",
+                "Source": "HUMA (Home Panel)",
                 "Date": date,
                 "Headline": headline
             })
-            
     return data
 
-def scrape_sosc():
-    # SOSC hosts its news and events on different endpoints; we target the main index layout
-    url = "https://sosc.hkust.edu.hk/"
-    print("Scraping SOSC News & Events Home Panel...")
-    html = fetch_html(url)
+def scrape_sosc_homepage():
+    print("Scraping SOSC Front Page Panels...")
+    html = fetch_html("https://sosc.hkust.edu.hk/")
     if not html: return []
     
     soup = BeautifulSoup(html, "html.parser")
     data = []
     
-    # 1. Pull SOSC News Items
-    news_items = soup.find_all("div", class_=lambda x: x and 'news' in x.lower())
-    for item in news_items:
-        link = item.find("a")
-        if link and len(link.text.strip()) > 10:
-            headline = " ".join(link.text.strip().split())
-            data.append({"Source": "SOSC (News)", "Date": "Recent News", "Headline": headline})
+    # Target columns and summary rows on the SOSC landing page
+    containers = soup.find_all("div", class_=lambda x: x and any(k in x.lower() for k in ['panel', 'block', 'news', 'event', 'view-content']))
+    
+    for container in containers:
+        items = container.find_all(["li", "div", "article"], class_=lambda x: x and any(k in x.lower() for k in ['item', 'row', 'title'])) or [container]
+        for item in items:
+            headline_elem = item.find(["a", "h2", "h3", "h4"]) or (item if item.name in ["h2", "h3", "h4", "a"] else None)
+            date_elem = item.find(["span", "div", "p"], class_=lambda x: x and 'date' in x.lower())
             
-    # 2. Pull SOSC Upcoming Events
-    event_items = soup.find_all("li") or soup.find_all("div", class_=lambda x: x and 'event' in x.lower())
-    for item in event_items:
-        # Check for textual clues to ensure it's an event box item
-        text_content = item.text.strip()
-        if any(keyword in text_content.lower() for keyword in ["presentation", "seminar", "lecture", "talk", "symposium"]):
-            lines = [line.strip() for line in text_content.split("\n") if line.strip()]
-            if len(lines) >= 2:
-                # Typically date elements sit at the beginning of event structural components
-                date = lines[0]
-                headline = " ".join(lines[1:])
-                if len(headline) > 12:
-                    data.append({"Source": "SOSC (Event)", "Date": date, "Headline": headline})
-                    
+            if headline_elem:
+                headline = clean_text(headline_elem.text)
+                if is_useless(headline):
+                    continue
+                
+                date = clean_text(date_elem.text) if date_elem else "Featured on SOSC Home"
+                
+                data.append({
+                    "Source": "SOSC (Home Panel)",
+                    "Date": date,
+                    "Headline": headline
+                })
     return data
 
 def main():
-    print("🚀 Running Upgraded Deep-Scraper System...")
+    print("🚀 Running Clean HUMA & SOSC Dashboard Scraper...")
     existing_headlines = set()
     
-    # Read existing database entries to build a clean tracking record
+    # Read existing history records
     if os.path.exists(CSV_FILE):
         with open(CSV_FILE, "r", encoding="utf-8") as f:
             reader = csv.DictReader(f)
             for row in reader:
-                # Sanitize the check string to prevent spacing duplication bugs
-                clean_head = " ".join(row["Headline"].split())
-                existing_headlines.add(clean_head)
+                existing_headlines.add(clean_text(row["Headline"]))
                 
-    # Gather everything across both news channels and event streams
-    fresh_scrapes = scrape_huma("news") + scrape_huma("events") + scrape_sosc()
+    # Gather layout streams exclusively from active landing matrices
+    front_page_items = scrape_huma_homepage() + scrape_sosc_homepage()
     
-    # Filter using our strict tracking set
+    # Filter and commit strictly unique entries
     items_to_add = []
-    for item in fresh_scrapes:
+    for item in front_page_items:
         if item["Headline"] not in existing_headlines:
             items_to_add.append(item)
-            existing_headlines.add(item["Headline"]) # Instantly track to catch inline duplicates
+            existing_headlines.add(item["Headline"]) # Local block loop check
             
-    print(f"📊 Filter Complete. Identified {len(items_to_add)} truly unique new posts.")
+    print(f"📊 Filter Complete. Found {len(items_to_add)} fresh updates across HUMA & SOSC.")
     
     if items_to_add:
         file_exists = os.path.exists(CSV_FILE)
@@ -122,9 +127,9 @@ def main():
             timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             for item in items_to_add:
                 writer.writerow([item["Source"], item["Date"], item["Headline"], timestamp])
-        print("✅ news.csv has been updated cleanly.")
+        print("✅ news.csv cleanly updated.")
     else:
-        print("🤷‍♂️ No new updates found across either division today.")
+        print("🤷‍♂️ No new front-page items spotted on either dashboard today.")
 
 if __name__ == "__main__":
     main()
