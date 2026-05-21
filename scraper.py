@@ -17,8 +17,8 @@ def fetch_html(url):
         return None
 
 def scrape_shss():
-    print("Scraping SHSS News...")
-    html = fetch_html("https://shss.hkust.edu.hk/news")
+    print("Scraping HUMA News...")
+    html = fetch_html("https://huma.hkust.edu.hk/")
     if not html: return []
     
     soup = BeautifulSoup(html, "html.parser")
@@ -34,9 +34,9 @@ def scrape_shss():
             date = date_elem.text.strip() if date_elem else "No Date Provided"
             
             if headline and len(headline) > 3:
-                data.append({"Source": "SHSS", "Date": date, "Headline": headline})
+                data.append({"Source": "HUMA", "Date": date, "Headline": headline})
     except Exception as e:
-        print(f"⚠️ Error parsing SHSS layout: {e}")
+        print(f"⚠️ Error parsing HUMA layout: {e}")
     return data
 
 def scrape_sosc():
