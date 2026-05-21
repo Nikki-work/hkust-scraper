@@ -13,71 +13,104 @@ def fetch_html(url):
         response.raise_for_status()
         return response.text
     except Exception as e:
-        print(f"❌ Failed to fetch {url}: {e}")
+        print(f"❌ Failed to reach {url}: {e}")
         return None
 
-def scrape_shss():
-    print("Scraping HUMA News...")
-    html = fetch_html("https://huma.hkust.edu.hk/")
+def scrape_huma(content_type):
+    # content_type will be either 'news' or 'events'
+    url = f"https://huma.hkust.edu.hk/{content_type}"
+    print(f"Scraping HUMA {content_type.upper()}...")
+    html = fetch_html(url)
     if not html: return []
     
     soup = BeautifulSoup(html, "html.parser")
     data = []
-    try:
-        # Fallback selectors check broad classes to protect against layout changes
-        articles = soup.find_all("div", class_=lambda x: x and 'news' in x.lower()) or soup.find_all("article")
-        for article in articles:
-            headline_elem = article.find(["h2", "h3", "h4", "a"])
-            date_elem = article.find(["span", "div", "p", "time"], class_=lambda x: x and 'date' in x.lower())
+    
+    # Target elements inside list structures
+    items = soup.find_all("li") or soup.find_all("div", class_=lambda x: x and 'item' in x.lower())
+    
+    for item in items:
+        headline_elem = item.find(["a", "h2", "h3", "h4"])
+        date_elem = item.find(["span", "div", "time", "p"], class_=lambda x: x and 'date' in x.lower())
+        
+        if headline_elem:
+            headline = headline_elem.text.strip()
+            # Clean out excessive spacing that tricks the duplicate checker
+            headline = " ".join(headline.split())
             
-            headline = headline_elem.text.strip() if headline_elem else None
-            date = date_elem.text.strip() if date_elem else "No Date Provided"
+            # Skip short links or navigation structural items
+            if len(headline) < 10 or "load more" in headline.lower():
+                continue
+                
+            date = date_elem.text.strip() if date_elem else "See Link/No Date"
+            date = " ".join(date.split())
             
-            if headline and len(headline) > 3:
-                data.append({"Source": "HUMA", "Date": date, "Headline": headline})
-    except Exception as e:
-        print(f"⚠️ Error parsing HUMA layout: {e}")
+            data.append({
+                "Source": f"HUMA ({content_type.capitalize()})",
+                "Date": date,
+                "Headline": headline
+            })
+            
     return data
 
 def scrape_sosc():
-    print("Scraping SOSC Events & News...")
-    html = fetch_html("https://sosc.hkust.edu.hk/news")
+    # SOSC hosts its news and events on different endpoints; we target the main index layout
+    url = "https://sosc.hkust.edu.hk/"
+    print("Scraping SOSC News & Events Home Panel...")
+    html = fetch_html(url)
     if not html: return []
     
     soup = BeautifulSoup(html, "html.parser")
     data = []
-    try:
-        articles = soup.find_all("article") or soup.find_all("div", class_=lambda x: x and 'item' in x.lower())
-        for article in articles:
-            headline_elem = article.find(["h2", "h3", "h4", "a"])
-            date_elem = article.find(["span", "div", "p", "time"], class_=lambda x: x and 'date' in x.lower())
+    
+    # 1. Pull SOSC News Items
+    news_items = soup.find_all("div", class_=lambda x: x and 'news' in x.lower())
+    for item in news_items:
+        link = item.find("a")
+        if link and len(link.text.strip()) > 10:
+            headline = " ".join(link.text.strip().split())
+            data.append({"Source": "SOSC (News)", "Date": "Recent News", "Headline": headline})
             
-            headline = headline_elem.text.strip() if headline_elem else None
-            date = date_elem.text.strip() if date_elem else "No Date Provided"
-            
-            if headline and len(headline) > 3:
-                data.append({"Source": "SOSC", "Date": date, "Headline": headline})
-    except Exception as e:
-        print(f"⚠️ Error parsing SOSC layout: {e}")
+    # 2. Pull SOSC Upcoming Events
+    event_items = soup.find_all("li") or soup.find_all("div", class_=lambda x: x and 'event' in x.lower())
+    for item in event_items:
+        # Check for textual clues to ensure it's an event box item
+        text_content = item.text.strip()
+        if any(keyword in text_content.lower() for keyword in ["presentation", "seminar", "lecture", "talk", "symposium"]):
+            lines = [line.strip() for line in text_content.split("\n") if line.strip()]
+            if len(lines) >= 2:
+                # Typically date elements sit at the beginning of event structural components
+                date = lines[0]
+                headline = " ".join(lines[1:])
+                if len(headline) > 12:
+                    data.append({"Source": "SOSC (Event)", "Date": date, "Headline": headline})
+                    
     return data
 
 def main():
-    print("🚀 Starting HKUST Cloud Scraper...")
+    print("🚀 Running Upgraded Deep-Scraper System...")
     existing_headlines = set()
     
-    # Read existing database entries to prevent row duplication
+    # Read existing database entries to build a clean tracking record
     if os.path.exists(CSV_FILE):
         with open(CSV_FILE, "r", encoding="utf-8") as f:
             reader = csv.DictReader(f)
             for row in reader:
-                existing_headlines.add(row["Headline"])
+                # Sanitize the check string to prevent spacing duplication bugs
+                clean_head = " ".join(row["Headline"].split())
+                existing_headlines.add(clean_head)
                 
-    # Gather live details
-    fresh_scrapes = scrape_shss() + scrape_sosc()
+    # Gather everything across both news channels and event streams
+    fresh_scrapes = scrape_shss("news") + scrape_shss("events") + scrape_sosc()
     
-    # Filter out updates we already captured previously
-    items_to_add = [item for item in fresh_scrapes if item["Headline"] not in existing_headlines]
-    print(f"📊 Identified {len(items_to_add)} NEW items to commit.")
+    # Filter using our strict tracking set
+    items_to_add = []
+    for item in fresh_scrapes:
+        if item["Headline"] not in existing_headlines:
+            items_to_add.append(item)
+            existing_headlines.add(item["Headline"]) # Instantly track to catch inline duplicates
+            
+    print(f"📊 Filter Complete. Identified {len(items_to_add)} truly unique new posts.")
     
     if items_to_add:
         file_exists = os.path.exists(CSV_FILE)
@@ -89,9 +122,9 @@ def main():
             timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             for item in items_to_add:
                 writer.writerow([item["Source"], item["Date"], item["Headline"], timestamp])
-        print("✅ Local news.csv updated.")
+        print("✅ news.csv has been updated cleanly.")
     else:
-        print("🤷‍♂️ Everything is up-to-date. No new events found today.")
+        print("🤷‍♂️ No new updates found across either division today.")
 
 if __name__ == "__main__":
     main()
