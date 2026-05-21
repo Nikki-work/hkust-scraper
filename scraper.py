@@ -101,7 +101,7 @@ def main():
                 existing_headlines.add(clean_head)
                 
     # Gather everything across both news channels and event streams
-    fresh_scrapes = scrape_shss("news") + scrape_shss("events") + scrape_sosc()
+    fresh_scrapes = scrape_huma("news") + scrape_huma("events") + scrape_sosc()
     
     # Filter using our strict tracking set
     items_to_add = []
